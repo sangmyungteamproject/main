@@ -128,6 +128,7 @@ checkpoint = ModelCheckpoint(filename,
                              monitor='val_loss',
                              verbose=1)
 # 모델 훈련
+
 history = model.fit\
     (
     train_data,
@@ -147,11 +148,35 @@ rescaled_actual.index = y_test.index[WINDOW_SIZE:]
 rescaled_pred = scaler1.inverse_transform(np.array(pred).reshape(-1,1))
 rescaled_pred = pd.DataFrame(rescaled_pred, index=y_test.index[WINDOW_SIZE:])
 
-#
+
 print(rescaled_pred.iloc[-1])
+
+from sklearn.metrics import mean_absolute_error,mean_squared_error,mean_squared_log_error,r2_score
+
+def confirm_result(actual, pred):
+    MAE = mean_absolute_error(actual, pred)
+    RMSE = np.sqrt(mean_squared_error(actual, pred))
+    MSLE = mean_squared_log_error(actual, pred)
+    RMSLE = np.sqrt(mean_squared_log_error(actual, pred))
+    R2 = r2_score(actual, pred)
+
+    pd.options.display.float_format = '{:.5f}'.format
+    Result = pd.DataFrame(data=[MAE,RMSE,RMSLE,R2],
+                          index = ['MAE','RMSE','RMSLE','R2'],
+                          columns = ['Results'])
+
+    return Result
 
 plt.figure(figsize=(12, 9))
 plt.plot(rescaled_actual, label='actual')
 plt.plot(rescaled_pred, label='prediction')
 plt.legend()
 plt.show()
+
+print('Rescale X')
+res1 = confirm_result(y_test[WINDOW_SIZE:].values.reshape(-1,1), np.array(pred).reshape(-1,1))
+print(res1)
+print('Rescale O')
+res2 = confirm_result(rescaled_actual,rescaled_pred)
+print(res2)
+
