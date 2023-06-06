@@ -7,10 +7,11 @@ import os
 import FinanceDataReader as fdr
 import tensorflow as tf
 import openpyxl
+import time
 
 from define import windowed_dataset, confirm_result, STOCK_CODE, EPOCH, \
-    LEARNING_RATE, TEST_SIZE, DATA_DATE, WINDOW_SIZE, BATCH_SIZE, REP_SIZE,\
-    FILE_PATH, TARGET_SHEET
+    LEARNING_RATE, TEST_SIZE, DATA_DATE, WINDOW_SIZE, BATCH_SIZE, REP_SIZE, \
+    FILE_PATH, TARGET_SHEET, change_binary
 
 from sklearn.preprocessing import MinMaxScaler
 
@@ -19,7 +20,9 @@ from tensorflow.keras.layers import Dense, LSTM, Conv1D, Lambda
 from tensorflow.keras.losses import Huber
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from openpyxl import Workbook
+
+# 시간 측정
+start_time = time.time()
 
 # 2018년 1월 1일 데이터 부터 가져옴
 stock = fdr.DataReader(STOCK_CODE, DATA_DATE)
@@ -97,6 +100,7 @@ for i in range(0, REP_SIZE):
 
 idx_count = y_test.count()
 
+# 리스케일링
 for i in range(0, REP_SIZE):
     globals()['rescaled_pred_' + str(i)] = tg_scaler.inverse_transform(
         np.array(globals()['pred_' + str(i)]).reshape(-1, 1))
@@ -109,16 +113,38 @@ rescaled_actual.index = stock.index[-idx_count + WINDOW_SIZE:]
 
 rep_pred = globals()['rescaled_pred_' + '0']
 
+actual_change_data = stock['Close'][-idx_count + WINDOW_SIZE:]
+actual_change_data = pd.Series(actual_change_data)
+actual_change_data = actual_change_data.diff()
+actual_change_data = actual_change_data.iloc[1:]  # 첫 번째 요소 제거
+
+actual_change_data_binary = actual_change_data.apply(lambda x: 1 if x >= 0 else 0)
+
+for i in range(REP_SIZE):
+    globals()['rescaled_pred_binary_' + str(i)] = change_binary(globals()['rescaled_pred_' + str(i)])
+
+pred_change_data_binary = globals()['rescaled_pred_binary_' + '0']
+
 # 마지막 예측값
 print(rep_pred.iloc[-1])
 
+# 종료 시간 기록
+end_time = time.time()
+
+# 실행 시간 계산
+execution_time = end_time - start_time
+
+# 결과 출력
+print(f"실행 시간: {execution_time:.2f}초")
+
+# 데이터 시각화
 plt.figure(figsize=(12, 9))
 plt.plot(rescaled_actual, label='actual')
 plt.plot(rep_pred, label='prediction')
 plt.legend()
 plt.show()
 
-res = confirm_result(rescaled_actual, rep_pred)
+res = confirm_result(rescaled_actual, rep_pred, actual_change_data_binary, pred_change_data_binary)
 print(res)
 
 try:
@@ -133,8 +159,8 @@ except FileNotFoundError:
 
 # 변경할 작업 수행
 for i in range(REP_SIZE):
-    res = confirm_result(rescaled_actual, globals()['rescaled_pred_' + str(i)])
+    res = confirm_result(rescaled_actual, globals()['rescaled_pred_' + str(i)], actual_change_data_binary,
+                         globals()['rescaled_pred_binary_' + str(i)])
     res_df = res_df._append(res, ignore_index=True)
 
-res_df.to_excel(FILE_PATH,sheet_name='Data')
-
+res_df.to_excel(FILE_PATH, sheet_name='Data')
