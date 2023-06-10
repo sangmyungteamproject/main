@@ -1,3 +1,5 @@
+# 주가 데이터 변량값을 타겟 데이터로 실험하는 코드
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,94 +10,60 @@ import FinanceDataReader as fdr
 import tensorflow as tf
 import openpyxl
 import time
-import ast
+
+from define import windowed_dataset, confirm_result, STOCK_CODE, EPOCH, \
+    LEARNING_RATE, TEST_SIZE, DATA_DATE, WINDOW_SIZE, BATCH_SIZE, REP_SIZE, \
+    FILE_PATH, TARGET_SHEET, change_binary, perform_dickey_fuller_test
 
 from sklearn.preprocessing import MinMaxScaler
+
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, LSTM, Conv1D, Lambda, MaxPooling1D, Dropout
+from tensorflow.keras.layers import Dense, LSTM, Conv1D, Lambda
 from tensorflow.keras.losses import Huber
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
-from define import windowed_dataset, confirm_result, STOCK_CODE, EPOCH, \
-    LEARNING_RATE, TEST_SIZE, DATA_DATE, WINDOW_SIZE, BATCH_SIZE, REP_SIZE, \
-    FILE_PATH, TARGET_SHEET, change_binary, perform_dickey_fuller_test, CONV1D_LSTM, \
-    _rescale, positive_negative, chk_red_bar, chk_blue_bar, cal_ma, cal_cummax, \
-    cal_days_change
-
-TARGET_DATA = 'Close'
-USE_CHANGE_DATA = True
-
 # 시간 측정
 start_time = time.time()
 
-# region 데이터 가져오기
+# 2018년 1월 1일 데이터 부터 가져옴
 stock = fdr.DataReader(STOCK_CODE, DATA_DATE)
+
 stock['Year'] = stock.index.year
 stock['Month'] = stock.index.month
 stock['Day'] = stock.index.day
+
 stock.head()
-# endregion
 
-# region 데이터 생성하기
-stock['Diff'] = stock['Close'] - stock['Open']
-stock['Color'] = stock['Diff'].apply(positive_negative)  # 봉 색깔
-stock['Bar_len'] = stock['Diff'] / stock['Open']  # 봉 길이
-stock['Red_bar'] = stock.apply(chk_red_bar, axis=1) # 양봉 길이
-stock['Blue_bar'] = stock.apply(chk_blue_bar, axis=1)  # 음봉 길이
-# 최근 5일간 양,음봉의 추세
-stock['Trend'] = stock['Color'].shift(4) + stock['Color'].shift(3) \
-                 + stock['Color'].shift(2) + stock['Color'].shift(1) + stock['Color']
-# 20일 이동평균
-stock['MA_20'] = cal_ma(stock, 'Close', 20)
-# 종가 대비 20일 이평의 상대 위치
-stock['MA_20_1'] = stock['MA_20'] / stock['Close']
-# 종가가 20일 이평보다 큰지, 작은지 여부
-stock['MA_20_2'] = stock['MA_20_1'].apply(lambda x: 1 if x >= 1 else 0)
-# 종가 전고점 대비 현재 종가의 값
-stock['Cummax'] = stock['Close'] / stock['Close'].expanding().max()
-# 윗꼬리 길이 = 종가대비 고가와 종가차이
-stock['Uptail'] = (stock['High'] - stock['Close']) / stock['Close']
-# 최근 5일 최저가 대비 가격 차이
-stock['5days_change'] = cal_days_change(stock, 5, 'Close')
-# 최근 4일 최저가 대비 가격 차이
-stock['4days_change'] = cal_days_change(stock, 4, 'Close')
-# 최근 3일 최저 거래량 대비 거래량 차이
-stock['3vol_change'] = cal_days_change(stock, 3, 'Volume')
-# 거래량 10일 이동평균
-stock['Volume_MA10'] = cal_ma(stock, 'Volume', 10)
-# 거래량 10일 이평대비 당일 거래량 값의 위치
-stock['Pos_Vol10MA'] = stock['Volume'] / stock['Volume_MA10']
+stock['Close_Changed'] = stock['Close'].diff()
+#stock['Close_Changed'] = stock['Change']
+stock = stock.iloc[1:]
 
-stock = stock.iloc[20:]
-# endregion
-
-# region 입력 변수 생성
-
-# endregion
-
-# region 스케일링
-scale_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-scale_ft_cols = ['Open', 'High', 'Low', 'Volume']
+TARGET_DATA = 'Close_Changed'
+USE_CHANGE_DATA = True
 
 ft_scaler = MinMaxScaler()
+
+# 스케일을 적용할 column을 정의합니다.
+scale_ft_cols = ['Open', 'High', 'Low', 'Volume']
+
 scaled_ft = ft_scaler.fit_transform(stock[scale_ft_cols])
+
 df = pd.DataFrame(scaled_ft, columns=scale_ft_cols)
 
 tg_scaler = MinMaxScaler()
+
 scaled_tg = tg_scaler.fit_transform(stock[TARGET_DATA].values.reshape(-1, 1))
 df[TARGET_DATA] = scaled_tg
 
 print(df)
-# endregion
 
-# region 데이터셋 분할
 from sklearn.model_selection import train_test_split
 
 x_train, x_test, y_train, y_test \
     = train_test_split(
-    df.drop(labels='Close', axis=1),
-    df['Close'],
+    df.drop(labels=TARGET_DATA, axis=1),
+    df[TARGET_DATA],
     test_size=TEST_SIZE,
     random_state=0,
     shuffle=False)
@@ -103,9 +71,7 @@ x_train, x_test, y_train, y_test \
 # train_data는 학습용 데이터셋, test_data는 검증용 데이터셋 입니다.
 train_data = windowed_dataset(y_train, WINDOW_SIZE, BATCH_SIZE, True)
 test_data = windowed_dataset(y_test, WINDOW_SIZE, BATCH_SIZE, False)
-# endregion
 
-# region 모델학습
 for i in range(0, REP_SIZE):
     # 모델 구조 : 특성추출 레이어(padding = casual -> 현재 위치 이전 정보만 사용하도록 제한), LSTM, Dense
     globals()['test_' + str(i)] = Sequential(
@@ -139,12 +105,14 @@ for i in range(0, REP_SIZE):
     globals()['test_' + str(i)].load_weights(globals()['filename_' + str(i)])
 
     globals()['pred_' + str(i)] = globals()['test_' + str(i)].predict(test_data)
-# endregion
 
-# region 리스케일링
 idx_count = y_test.count()
 
-if _rescale:
+# 리스케일링
+
+_rescale = False
+
+if (_rescale):
     for i in range(0, REP_SIZE):
         globals()['rescaled_pred_' + str(i)] = tg_scaler.inverse_transform(
             np.array(globals()['pred_' + str(i)]).reshape(-1, 1))
@@ -167,7 +135,7 @@ else:
 
 rep_pred = globals()['rescaled_pred_' + '0']
 
-actual_change_data = stock['Close'][-idx_count + WINDOW_SIZE:]
+actual_change_data = stock[TARGET_DATA][-idx_count + WINDOW_SIZE:]
 actual_change_data = pd.Series(actual_change_data)
 actual_change_data = actual_change_data.diff()
 actual_change_data = actual_change_data.iloc[1:]  # 첫 번째 요소 제거
@@ -178,7 +146,6 @@ for i in range(REP_SIZE):
     globals()['rescaled_pred_binary_' + str(i)] = change_binary(globals()['rescaled_pred_' + str(i)])
 
 pred_change_data_binary = globals()['rescaled_pred_binary_' + '0']
-# endregion
 
 # 마지막 예측값
 print(rep_pred.iloc[-1])
@@ -192,20 +159,17 @@ execution_time = end_time - start_time
 # 결과 출력
 print(f"실행 시간: {execution_time:.2f}초")
 
-# region 데이터 시각화
+# 데이터 시각화
 plt.figure(figsize=(12, 9))
 plt.plot(rescaled_actual, label='actual')
 plt.plot(rep_pred, label='prediction')
 plt.legend()
 plt.show()
-# endregion
 
-# stationary_test
-perform_dickey_fuller_test(stock[TARGET_DATA])
-
-# region 평가 데이터 저장
 res = confirm_result(rescaled_actual, rep_pred, actual_change_data_binary, pred_change_data_binary, USE_CHANGE_DATA)
 print(res)
+
+perform_dickey_fuller_test(stock[TARGET_DATA])
 
 try:
     # 기존 파일 열기
@@ -225,4 +189,3 @@ for i in range(REP_SIZE):
     res_df = res_df._append(res, ignore_index=True)
 
 res_df.to_excel(FILE_PATH, sheet_name='Data')
-# endregion
