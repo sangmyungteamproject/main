@@ -24,10 +24,13 @@ from define import windowed_dataset, confirm_result, STOCK_CODE, EPOCH, \
     cal_days_change
 
 TARGET_DATA = 'Close'
-USE_CHANGE_DATA = True
+USE_CHANGE_DATA = False
 
 # 시간 측정
 start_time = time.time()
+
+# 입력변수 리스트
+scale_ft_cols = ['Open', 'High', 'Low', 'Volume']
 
 # region 데이터 가져오기
 stock = fdr.DataReader(STOCK_CODE, DATA_DATE)
@@ -35,49 +38,75 @@ stock['Year'] = stock.index.year
 stock['Month'] = stock.index.month
 stock['Day'] = stock.index.day
 stock.head()
+
+# 결측값 제거
+stock = stock[stock['Open'] != 0]
+
 # endregion
 
-# region 데이터 생성하기
+# region 입력 변수 데이터 생성
 stock['Diff'] = stock['Close'] - stock['Open']
+
 stock['Color'] = stock['Diff'].apply(positive_negative)  # 봉 색깔
+scale_ft_cols.append('Color')
+
 stock['Bar_len'] = stock['Diff'] / stock['Open']  # 봉 길이
+scale_ft_cols.append('Bar_len')
+
 stock['Red_bar'] = stock.apply(chk_red_bar, axis=1) # 양봉 길이
 stock['Blue_bar'] = stock.apply(chk_blue_bar, axis=1)  # 음봉 길이
+scale_ft_cols.append('Red_bar')
+scale_ft_cols.append('Blue_bar')
+
 # 최근 5일간 양,음봉의 추세
 stock['Trend'] = stock['Color'].shift(4) + stock['Color'].shift(3) \
                  + stock['Color'].shift(2) + stock['Color'].shift(1) + stock['Color']
+scale_ft_cols.append('Trend')
+
 # 20일 이동평균
 stock['MA_20'] = cal_ma(stock, 'Close', 20)
+scale_ft_cols.append('MA_20')
+
 # 종가 대비 20일 이평의 상대 위치
 stock['MA_20_1'] = stock['MA_20'] / stock['Close']
+scale_ft_cols.append('MA_20_1')
+
 # 종가가 20일 이평보다 큰지, 작은지 여부
 stock['MA_20_2'] = stock['MA_20_1'].apply(lambda x: 1 if x >= 1 else 0)
+scale_ft_cols.append('MA_20_2')
+
 # 종가 전고점 대비 현재 종가의 값
 stock['Cummax'] = stock['Close'] / stock['Close'].expanding().max()
+scale_ft_cols.append('Cummax')
+
 # 윗꼬리 길이 = 종가대비 고가와 종가차이
 stock['Uptail'] = (stock['High'] - stock['Close']) / stock['Close']
+scale_ft_cols.append('Uptail')
+
 # 최근 5일 최저가 대비 가격 차이
 stock['5days_change'] = cal_days_change(stock, 5, 'Close')
+scale_ft_cols.append('5days_change')
+
 # 최근 4일 최저가 대비 가격 차이
 stock['4days_change'] = cal_days_change(stock, 4, 'Close')
+scale_ft_cols.append('4days_change')
+
 # 최근 3일 최저 거래량 대비 거래량 차이
 stock['3vol_change'] = cal_days_change(stock, 3, 'Volume')
+scale_ft_cols.append('3vol_change')
+
 # 거래량 10일 이동평균
 stock['Volume_MA10'] = cal_ma(stock, 'Volume', 10)
+scale_ft_cols.append('Volume_MA10')
+
 # 거래량 10일 이평대비 당일 거래량 값의 위치
 stock['Pos_Vol10MA'] = stock['Volume'] / stock['Volume_MA10']
+scale_ft_cols.append('Pos_Vol10MA')
 
 stock = stock.iloc[20:]
 # endregion
 
-# region 입력 변수 생성
-
-# endregion
-
 # region 스케일링
-scale_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-scale_ft_cols = ['Open', 'High', 'Low', 'Volume']
-
 ft_scaler = MinMaxScaler()
 scaled_ft = ft_scaler.fit_transform(stock[scale_ft_cols])
 df = pd.DataFrame(scaled_ft, columns=scale_ft_cols)
