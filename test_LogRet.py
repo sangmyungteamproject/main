@@ -1,3 +1,4 @@
+# 주가 데이터를 로그 수익률으로 변경 사용
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,6 +10,7 @@ import tensorflow as tf
 import openpyxl
 import time
 import ast
+import math
 
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
@@ -16,6 +18,7 @@ from tensorflow.keras.layers import Dense, LSTM, Conv1D, Lambda, MaxPooling1D, D
 from tensorflow.keras.losses import Huber
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from sklearn.model_selection import train_test_split
 
 from define import windowed_dataset, confirm_result, STOCK_CODE, EPOCH, \
     LEARNING_RATE, TEST_SIZE, DATA_DATE, WINDOW_SIZE, BATCH_SIZE, REP_SIZE, \
@@ -23,8 +26,8 @@ from define import windowed_dataset, confirm_result, STOCK_CODE, EPOCH, \
     _rescale, positive_negative, chk_red_bar, chk_blue_bar, cal_ma, cal_cummax, \
     cal_days_change
 
-TARGET_DATA = 'Close'
-USE_CHANGE_DATA = False
+TARGET_DATA = 'Log_ret'
+USE_CHANGE_DATA = True
 
 # 시간 측정
 start_time = time.time()
@@ -53,7 +56,7 @@ scale_ft_cols.append('Color')
 stock['Bar_len'] = stock['Diff'] / stock['Open']  # 봉 길이
 scale_ft_cols.append('Bar_len')
 
-stock['Red_bar'] = stock.apply(chk_red_bar, axis=1) # 양봉 길이
+stock['Red_bar'] = stock.apply(chk_red_bar, axis=1)  # 양봉 길이
 stock['Blue_bar'] = stock.apply(chk_blue_bar, axis=1)  # 음봉 길이
 scale_ft_cols.append('Red_bar')
 scale_ft_cols.append('Blue_bar')
@@ -103,6 +106,9 @@ scale_ft_cols.append('Volume_MA10')
 stock['Pos_Vol10MA'] = stock['Volume'] / stock['Volume_MA10']
 scale_ft_cols.append('Pos_Vol10MA')
 
+# 로그 수익률
+stock['Log_ret'] = np.log(stock['Close']) - np.log(stock['Close'].shift(1))
+
 stock = stock.iloc[20:]
 # endregion
 
@@ -119,12 +125,10 @@ print(df)
 # endregion
 
 # region 데이터셋 분할
-from sklearn.model_selection import train_test_split
-
 x_train, x_test, y_train, y_test \
     = train_test_split(
-    df.drop(labels='Close', axis=1),
-    df['Close'],
+    df.drop(labels=TARGET_DATA, axis=1),
+    df[TARGET_DATA],
     test_size=TEST_SIZE,
     random_state=0,
     shuffle=False)
@@ -132,7 +136,7 @@ x_train, x_test, y_train, y_test \
 # train_data는 학습용 데이터셋, test_data는 검증용 데이터셋 입니다.
 train_data = windowed_dataset(y_train, WINDOW_SIZE, BATCH_SIZE, True)
 test_data = windowed_dataset(y_test, WINDOW_SIZE, BATCH_SIZE, False)
-# endregionw
+# endregion
 
 # region 모델학습
 for i in range(0, REP_SIZE):
