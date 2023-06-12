@@ -123,8 +123,8 @@ from sklearn.model_selection import train_test_split
 
 x_train, x_test, y_train, y_test \
     = train_test_split(
-    df.drop(labels='Close', axis=1),
-    df['Close'],
+    df.drop(labels=TARGET_DATA, axis=1),
+    df[TARGET_DATA],
     test_size=TEST_SIZE,
     random_state=0,
     shuffle=False)
@@ -132,14 +132,17 @@ x_train, x_test, y_train, y_test \
 # train_data는 학습용 데이터셋, test_data는 검증용 데이터셋 입니다.
 train_data = windowed_dataset(y_train, WINDOW_SIZE, BATCH_SIZE, True)
 test_data = windowed_dataset(y_test, WINDOW_SIZE, BATCH_SIZE, False)
-# endregionw
+# endregion
 
 # region 모델학습
 for i in range(0, REP_SIZE):
     # 모델 구조 : 특성추출 레이어(padding = casual -> 현재 위치 이전 정보만 사용하도록 제한), LSTM, Dense
-    globals()['test_' + str(i)] = Sequential(
-        [Conv1D(filters=32, kernel_size=5, padding="causal", activation="relu", input_shape=[WINDOW_SIZE, 1]),
-         LSTM(16, activation='tanh'), Dense(16, activation="relu"), Dense(1), ])
+    globals()['test_' + str(i)] = Sequential([
+        Conv1D(filters=32, kernel_size=5, padding="causal", activation="relu", input_shape=[WINDOW_SIZE, 1]),
+        LSTM(16, activation='tanh'),
+        Dense(16, activation="relu"),
+        Dense(1),
+    ])
 
     # 최적화 함수
     optimizer = Adam(LEARNING_RATE)
@@ -150,7 +153,6 @@ for i in range(0, REP_SIZE):
     globals()['test_' + str(i)].compile(loss=loss, optimizer=optimizer, metrics=['mse'])
 
     # earlystopping은 10번 epoch통안 val_loss 개선이 없다면 학습을 멈춥니다.
-    # val_loss = mse
     globals()['e_stop_' + str(i)] = EarlyStopping(monitor='val_loss', patience=10)
 
     # val_loss 기준 체크포인터도 생성합니다.

@@ -59,7 +59,7 @@ def confirm_result(actual, pred, actual_bin, pred_bin, use_change_data):
     if not use_change_data:
         table = \
             {
-                "MSE": [mae], "RMSE": [rmse], "RMSLE": [rmsle], "R2": [r2],
+                "MAE": [mae], "RMSE": [rmse], "RMSLE": [rmsle], "R2": [r2],
                 "ACCURACY": [accuracy], "PRECISION": [precision], "RECALL": [recall],
                 "F1_SCORE": [f1]
             }
@@ -67,7 +67,7 @@ def confirm_result(actual, pred, actual_bin, pred_bin, use_change_data):
     else:
         table = \
             {
-                "MSE": [mae], "RMSE": [rmse], "RMSLE": ['0'], "R2": [r2],
+                "MAE": [mae], "RMSE": [rmse], "RMSLE": ['0'], "R2": [r2],
                 "ACCURACY": [accuracy], "PRECISION": [precision], "RECALL": [recall],
                 "F1_SCORE": [f1]
             }
@@ -142,19 +142,17 @@ Dense(1),
 STOCK_CODE = '005930'
 # 데이터 가져오기 시작할 날짜
 DATA_DATE = '2000-01-01'
+# 리스케일링 여부
+_rescale = True
+# 테스트 반복 횟수, epoch X
+REP_SIZE = 20
+
 # 학습 횟수
 EPOCH = 300
 # 옵티마이저 학습률
 LEARNING_RATE = 0.0002
-# 검증데이터 비율
+# 테스트 데이터 비율
 TEST_SIZE = 0.2
-
-# 리스케일링 여부
-_rescale = True
-
-# 테스트 반복 횟수, epoch X
-REP_SIZE = 20
-
 WINDOW_SIZE = 20
 BATCH_SIZE = 64
 
