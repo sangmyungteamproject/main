@@ -141,19 +141,19 @@ Dense(1),
 # 종목 : 삼성전자(005930)
 STOCK_CODE = '005930'
 # 데이터 가져오기 시작할 날짜
-DATA_DATE = '2000-01-01'
+DATA_DATE = '2004-01-01'
 # 리스케일링 여부
 _rescale = True
 # 테스트 반복 횟수, epoch X
 REP_SIZE = 20
 
 # 학습 횟수
-EPOCH = 300
+EPOCH = 1000
 # 옵티마이저 학습률
-LEARNING_RATE = 0.0002
+LEARNING_RATE = 0.002
 # 테스트 데이터 비율
 TEST_SIZE = 0.2
-WINDOW_SIZE = 20
+WINDOW_SIZE = 10
 BATCH_SIZE = 64
 
 FILE_PATH = 'C:/Users/kim/Desktop/res_df.xlsx'

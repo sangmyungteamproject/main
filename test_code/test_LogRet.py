@@ -1,3 +1,4 @@
+# 주가 데이터를 로그 수익률으로 변경 사용
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,6 +10,7 @@ import tensorflow as tf
 import openpyxl
 import time
 import ast
+import math
 
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
@@ -16,9 +18,7 @@ from tensorflow.keras.layers import Dense, LSTM, Conv1D, Lambda, MaxPooling1D, D
 from tensorflow.keras.losses import Huber
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from tensorflow.summary import create_file_writer, scalar
-from tensorflow.keras.layers import BatchNormalization
-from tensorflow.keras.regularizers import l1, l2
+from sklearn.model_selection import train_test_split
 
 from define import windowed_dataset, confirm_result, STOCK_CODE, EPOCH, \
     LEARNING_RATE, TEST_SIZE, DATA_DATE, WINDOW_SIZE, BATCH_SIZE, REP_SIZE, \
@@ -26,12 +26,10 @@ from define import windowed_dataset, confirm_result, STOCK_CODE, EPOCH, \
     _rescale, positive_negative, chk_red_bar, chk_blue_bar, cal_ma, cal_cummax, \
     cal_days_change
 
-log_dir = "logs/"  # 텐서보드 로그 디렉토리 경로 설정
+TARGET_DATA = 'Log_ret'
+USE_CHANGE_DATA = True
 
-TARGET_DATA = 'Close'
-USE_CHANGE_DATA = False
-
-# 학습 시간 측정
+# 시간 측정
 start_time = time.time()
 
 # 입력변수 리스트
@@ -39,14 +37,6 @@ scale_ft_cols = ['Open', 'High', 'Low', 'Volume']
 
 # region 데이터 가져오기
 stock = fdr.DataReader(STOCK_CODE, DATA_DATE)
-
-# 환율
-usd_krw = fdr.DataReader('USD/KRW', DATA_DATE)
-jpy_krw = fdr.DataReader('JPY/KRW', DATA_DATE)
-
-# 미 국채 금리 10년
-DGS = fdr.DataReader('FRED:DGS10', start=DATA_DATE)
-
 stock['Year'] = stock.index.year
 stock['Month'] = stock.index.month
 stock['Day'] = stock.index.day
@@ -58,32 +48,17 @@ stock = stock[stock['Open'] != 0]
 # endregion
 
 # region 입력 변수 데이터 생성
-# 변량 (입력변수 아님)
 stock['Diff'] = stock['Close'] - stock['Open']
 
-# 환율
-stock['USD/KRW'] = usd_krw['Close']
-stock['JPY/KRW'] = jpy_krw['Close']
-scale_ft_cols.append('USD/KRW')
-scale_ft_cols.append('JPY/KRW')
-
-# 미 국채 10년
-stock['DGS10'] = DGS
-scale_ft_cols.append('DGS10')
-
-# 봉 색깔
-stock['Color'] = stock['Diff'].apply(positive_negative)
+stock['Color'] = stock['Diff'].apply(positive_negative)  # 봉 색깔
 scale_ft_cols.append('Color')
 
-# 봉 길이
-stock['Bar_len'] = stock['Diff'] / stock['Open']
+stock['Bar_len'] = stock['Diff'] / stock['Open']  # 봉 길이
 scale_ft_cols.append('Bar_len')
 
-# 양봉 길이
-stock['Red_bar'] = stock.apply(chk_red_bar, axis=1)
+stock['Red_bar'] = stock.apply(chk_red_bar, axis=1)  # 양봉 길이
+stock['Blue_bar'] = stock.apply(chk_blue_bar, axis=1)  # 음봉 길이
 scale_ft_cols.append('Red_bar')
-# 음봉 길이
-stock['Blue_bar'] = stock.apply(chk_blue_bar, axis=1)
 scale_ft_cols.append('Blue_bar')
 
 # 최근 5일간 양,음봉의 추세
@@ -131,17 +106,10 @@ scale_ft_cols.append('Volume_MA10')
 stock['Pos_Vol10MA'] = stock['Volume'] / stock['Volume_MA10']
 scale_ft_cols.append('Pos_Vol10MA')
 
-# 앞부분 데이터 삭제 (20일 이평 기준)
+# 로그 수익률
+stock['Log_ret'] = np.log(stock['Close']) - np.log(stock['Close'].shift(1))
+
 stock = stock.iloc[20:]
-# endregion
-
-# region 데이터 히트맵 그리기
-correlation_matrix = stock[scale_ft_cols].corr()
-
-plt.figure(figsize=(12, 10))
-sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt='.2f', linewidths=0.5)
-plt.title('Correlation Heatmap')
-plt.show()
 # endregion
 
 # region 스케일링
@@ -157,8 +125,6 @@ print(df)
 # endregion
 
 # region 데이터셋 분할
-from sklearn.model_selection import train_test_split
-
 x_train, x_test, y_train, y_test \
     = train_test_split(
     df.drop(labels=TARGET_DATA, axis=1),
@@ -173,47 +139,39 @@ test_data = windowed_dataset(y_test, WINDOW_SIZE, BATCH_SIZE, False)
 # endregion
 
 # region 모델학습
-with create_file_writer(log_dir).as_default():
-    for i in range(0, REP_SIZE):
-        # 모델 구조 : 특성추출 레이어(padding = casual -> 현재 위치 이전 정보만 사용하도록 제한), LSTM, Dense
-        globals()['test_' + str(i)] = Sequential([
-            Conv1D(filters=32, kernel_size=5, padding="causal", activation="relu", input_shape=[WINDOW_SIZE, 1]),
-            LSTM(16, activation='tanh'),
-            Dropout(0.2),
-            Dense(16, activation="relu"),
-            Dropout(0.2),
-            Dense(1),
-        ])
+for i in range(0, REP_SIZE):
+    # 모델 구조 : 특성추출 레이어(padding = casual -> 현재 위치 이전 정보만 사용하도록 제한), LSTM, Dense
+    globals()['test_' + str(i)] = Sequential(
+        [Conv1D(filters=32, kernel_size=5, padding="causal", activation="relu", input_shape=[WINDOW_SIZE, 1]),
+         LSTM(16, activation='tanh'), Dense(16, activation="relu"), Dense(1), ])
 
-        # 최적화 함수
-        optimizer = Adam(LEARNING_RATE)
-        # 손실함수 = Sequence 학습에 비교적 좋은 퍼포먼스를 내는 Huber()를 사용합니다.
-        loss = Huber()
+    # 최적화 함수
+    optimizer = Adam(LEARNING_RATE)
+    # 손실함수 = Sequence 학습에 비교적 좋은 퍼포먼스를 내는 Huber()를 사용합니다.
+    loss = Huber()
 
-        # 모델 컴파일, 손실함수 = huber, 최적화함수 = adam, 평가지표 = MSE
-        globals()['test_' + str(i)].compile(loss=loss, optimizer=optimizer, metrics=['mse'])
+    # 모델 컴파일, 손실함수 = huber, 최적화함수 = adam, 평가지표 = MSE
+    globals()['test_' + str(i)].compile(loss=loss, optimizer=optimizer, metrics=['mse'])
 
-        # earlystopping은 10번 epoch통안 val_loss 개선이 없다면 학습을 멈춥니다.
-        globals()['e_stop_' + str(i)] = EarlyStopping(monitor='val_loss', patience=10)
+    # earlystopping은 10번 epoch통안 val_loss 개선이 없다면 학습을 멈춥니다.
+    # val_loss = mse
+    globals()['e_stop_' + str(i)] = EarlyStopping(monitor='val_loss', patience=10)
 
-        # val_loss 기준 체크포인터도 생성합니다.
-        globals()['filename_' + str(i)] = os.path.join('tmp', 'checkpointer_' + str(i) + '.ckpt')
-        globals()['checkpoint_' + str(i)] = ModelCheckpoint(globals()['filename_' + str(i)],
-                                                            save_weights_only=True,
-                                                            save_best_only=True,
-                                                            monitor='val_loss',
-                                                            verbose=1)
-        # 텐서보드 콜백 생성
-        globals()['tensorboard_callback_' + str(i)] = tf.keras.callbacks.TensorBoard(log_dir=log_dir+str(i))
+    # val_loss 기준 체크포인터도 생성합니다.
+    globals()['filename_' + str(i)] = os.path.join('../tmp', 'checkpointer_' + str(i) + '.ckpt')
+    globals()['checkpoint_' + str(i)] = ModelCheckpoint(globals()['filename_' + str(i)],
+                                                        save_weights_only=True,
+                                                        save_best_only=True,
+                                                        monitor='val_loss',
+                                                        verbose=1)
 
-        # 모델 훈련
-        globals()['test_' + str(i)].fit(train_data, validation_data=test_data, epochs=EPOCH,
-                                        callbacks=[globals()['checkpoint_' + str(i)], globals()['e_stop_' + str(i)],
-                                                   globals()['tensorboard_callback_' + str(i)]])
+    # 모델 훈련
+    globals()['test_' + str(i)].fit(train_data, validation_data=test_data, epochs=EPOCH,
+                                    callbacks=[globals()['checkpoint_' + str(i)], globals()['e_stop_' + str(i)]])
 
-        globals()['test_' + str(i)].load_weights(globals()['filename_' + str(i)])
+    globals()['test_' + str(i)].load_weights(globals()['filename_' + str(i)])
 
-        globals()['pred_' + str(i)] = globals()['test_' + str(i)].predict(test_data)
+    globals()['pred_' + str(i)] = globals()['test_' + str(i)].predict(test_data)
 # endregion
 
 # region 리스케일링
@@ -255,6 +213,8 @@ for i in range(REP_SIZE):
 pred_change_data_binary = globals()['rescaled_pred_binary_' + '0']
 # endregion
 
+# 마지막 예측값
+print(rep_pred.iloc[-1])
 
 # 종료 시간 기록
 end_time = time.time()
@@ -299,8 +259,3 @@ for i in range(REP_SIZE):
 
 res_df.to_excel(FILE_PATH, sheet_name='Data')
 # endregion
-
-# 마지막 예측값
-_date = rep_pred.index[-1].strftime('%Y-%m-%d')
-_value = int(rep_pred.iloc[-1, 0])
-print(f"예측 날짜 : {_date} => 예측 가격 : {_value}")
