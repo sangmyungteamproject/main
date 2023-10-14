@@ -131,30 +131,46 @@ def cal_days_change(data, day, data_type):
 
 # endregion
 
-CONV1D_LSTM = """
-Conv1D(filters=32, kernel_size=5, padding="causal", activation="relu", input_shape=[WINDOW_SIZE, 1]),
-LSTM(16, activation='tanh'),
-Dense(16, activation="relu"),
-Dense(1),
-"""
+# region 입력변수 사용여부
+senti = True
+ex_rate = True
+bonds = True
+color = True
+bar_len = True
+red_bar = True
+blue_bar = True
+trend = True
+ma20 = True
+ma_20_1 = True
+ma_20_2 = True
+cummax = True
+uptail = True
+five_days_change = True
+four_days_change = True
+three_vol_change = True
+vol_ma10 = True
+pos_vol10ma = True
+# endregion
 
-# 종목 : 삼성전자(005930)
-STOCK_CODE = '005930'
+# 종목 : 삼성전자(005930), sk(034730)
+STOCK_CODE = '034730'
 # 데이터 가져오기 시작할 날짜
-DATA_DATE = '2004-01-01'
+DATA_DATE = '2014-02-01'
+END_DATE = '2023-10-01'
 # 리스케일링 여부
 _rescale = True
 # 테스트 반복 횟수, epoch X
-REP_SIZE = 20
+REP_SIZE = 1
 
 # 학습 횟수
-EPOCH = 1000
+EPOCH = 200
 # 옵티마이저 학습률
 LEARNING_RATE = 0.002
 # 테스트 데이터 비율
 TEST_SIZE = 0.2
-WINDOW_SIZE = 10
-BATCH_SIZE = 64
+WINDOW_SIZE = 20
+BATCH_SIZE = 32
 
 FILE_PATH = 'C:/Users/kim/Desktop/res_df.xlsx'
 TARGET_SHEET = 'Data'
+SENTI_FILE_NAME = 'sk_감성분석.csv'
