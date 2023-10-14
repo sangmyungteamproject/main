@@ -103,7 +103,6 @@ if senti:
 
 # 결측값 제거
 stock = stock[stock['Open'] != 0]
-raise Exception("이것은 강제로 발생시킨 예외입니다.")
 # endregion
 
 # region 입력 변수 데이터 생성
