@@ -40,8 +40,8 @@ corp_list.append(kakao)
 sk = load_corp_data('034730', '2014-02-01', '2023-10-01', 'data/sk_senti.csv')
 corp_list.append(sk)
 
-hyundai = load_corp_data('005380', '2016-01-01', '2023-10-01', 'data/현대_senti.csv')
-corp_list.append(hyundai)
+hyundai = load_corp_data('005380', '2016-01-01', '2018-02-08', 'data/현대_senti.csv')
+#corp_list.append(hyundai)
 
 cj = load_corp_data('001040', '2003-01-01', '2023-10-01', 'data/cj_senti.csv')
 corp_list.append(cj)
@@ -53,21 +53,35 @@ stock = pd.concat(corp_list, ignore_index=True)
 #stock = stock.sort_values(by='Date')
 
 #eco = load_corp_data('247540','2022-12-01','2023-10-01','data/에코프로비엠_senti.csv')
+#ne = load_corp_data('053290','2021-08-01','2022-08-01','data/ne능률_senti.csv')
 
 samsung2 = load_corp_data('005930', '2022-09-01', '2023-06-01', 'data/삼성전자_senti.csv')
+corp_list.append(samsung2)
 
-test_stock = samsung2
+test_stock = hyundai
+
 
 # 감성점수 없는 행 삭제
-stock = stock.dropna(subset=['senti_val'])
+if(senti):
+    stock = stock.dropna(subset=['senti_val'])
 # endregion
 
 # region 입력변수 리스트 추가
+scale_ft_cols = []
 # 기본 입력변수 리스트
-scale_ft_cols = ['Open', 'High', 'Low', 'Volume']
+if open_price:
+    scale_ft_cols.append('Open')
+if high_price:
+    scale_ft_cols.append('High')
+if low_price:
+    scale_ft_cols.append('Low')
+if volume:
+    scale_ft_cols.append('Volume')
 # 감성점수
 if senti:
     scale_ft_cols.append('senti_val')
+if rsi:
+    scale_ft_cols.append('RSI')
 # 환율
 if ex_rate:
     scale_ft_cols.append('USD/KRW')
@@ -122,6 +136,8 @@ if pos_vol10ma:
     scale_ft_cols.append('Pos_Vol10MA')
 # endregion
 
+inf_test = find_cols_with_inf(stock, scale_ft_cols)
+
 # region 데이터 히트맵 그리기
 # correlation_matrix = stock[scale_ft_cols].corr()
 #
@@ -174,40 +190,61 @@ for_test = windowed_dataset(z_test, WINDOW_SIZE, BATCH_SIZE, False)
 # region 모델학습
 for i in range(0, REP_SIZE):
     # 모델 구조 : 특성추출 레이어(padding = casual -> 현재 위치 이전 정보만 사용하도록 제한), LSTM, Dense
-    globals()['test_' + str(i)] = Sequential([
-        Conv1D(filters=32, kernel_size=5, padding="causal", activation="relu", input_shape=[WINDOW_SIZE, 1]),
-        LSTM(16, activation='tanh'),
-        Dropout(0.2),
-        Dense(16, activation="relu"),
-        Dropout(0.2),
-        Dense(1),
-    ])
-
+    if TARGET_DATA == 'Signal':
+        globals()['test_' + str(i)] = Sequential([
+            Conv1D(filters=32, kernel_size=5, padding="causal", activation="relu", input_shape=[WINDOW_SIZE, 1]),
+            LSTM(16, activation='tanh'),
+            Dropout(0.2),
+            Dense(16, activation="relu"),
+            Dense(1),
+        ])
+    else:
+        globals()['test_' + str(i)] = Sequential([
+            Conv1D(filters=32, kernel_size=5, padding="causal", activation="relu", input_shape=[WINDOW_SIZE, 1]),
+            LSTM(16, activation='tanh'),
+            Dropout(0.2),
+            Dense(16, activation="relu"),
+            Dense(1),
+        ])
     # 최적화 함수
     optimizer = Adam(LEARNING_RATE)
     # 손실함수 = Sequence 학습에 비교적 좋은 퍼포먼스를 내는 Huber()를 사용합니다.
     loss = Huber()
 
-    # 모델 컴파일, 손실함수 = huber, 최적화함수 = adam, 평가지표 = MSE
-    globals()['test_' + str(i)].compile(loss=loss, optimizer=optimizer, metrics=['mse'])
+    # 모델 컴파일
+    if TARGET_DATA == 'Signal':
+        globals()['test_' + str(i)].compile(loss=loss, optimizer=optimizer, metrics=['accuracy'])
+    else:
+        globals()['test_' + str(i)].compile(loss=loss, optimizer=optimizer, metrics=['mse'])
 
-    # earlystopping은 10번 epoch통안 val_loss 개선이 없다면 학습을 멈춥니다.
-    globals()['e_stop_' + str(i)] = EarlyStopping(monitor='val_loss', patience=PATIENCE)
+    # earlystopping은 patience동안 개선이 없다면 학습을 멈춥니다.
+    if TARGET_DATA == 'Signal':
+        globals()['e_stop_' + str(i)] = EarlyStopping(monitor='val_accuracy', patience=PATIENCE)
+    else:
+        globals()['e_stop_' + str(i)] = EarlyStopping(monitor='val_loss', patience=PATIENCE)
 
-    # val_loss 기준 체크포인터도 생성합니다.
+    # 특정 metric 기준 checkpoint
     globals()['filename_' + str(i)] = os.path.join('tmp', 'checkpointer_' + str(i) + '.ckpt')
-    globals()['checkpoint_' + str(i)] = ModelCheckpoint(globals()['filename_' + str(i)],
-                                                        save_weights_only=True,
-                                                        save_best_only=True,
-                                                        monitor='val_loss',
-                                                        verbose=1)
+    if TARGET_DATA == 'Signal':
+        globals()['checkpoint_' + str(i)] = ModelCheckpoint(globals()['filename_' + str(i)],
+                                                            save_weights_only=True,
+                                                            save_best_only=True,
+                                                            monitor='val_accuracy',
+                                                            verbose=1)
+    else:
+        globals()['checkpoint_' + str(i)] = ModelCheckpoint(globals()['filename_' + str(i)],
+                                                            save_weights_only=True,
+                                                            save_best_only=True,
+                                                            monitor='val_loss',
+                                                            verbose=1)
 
     # 모델 훈련
-    globals()['test_' + str(i)].fit(train_data, validation_data=test_data, epochs=EPOCH,
+    globals()['history_' + str(i)] = globals()['test_' + str(i)].fit(train_data, validation_data=test_data, epochs=EPOCH,
                                     callbacks=[globals()['checkpoint_' + str(i)], globals()['e_stop_' + str(i)]])
 
     globals()['test_' + str(i)].load_weights(globals()['filename_' + str(i)])
 
+    # 예측
     globals()['pred_' + str(i)] = globals()['test_' + str(i)].predict(for_test)
 # endregion
 
@@ -236,16 +273,20 @@ else:
     rescaled_actual.index = test_stock['Date'][WINDOW_SIZE:]
 
 rep_pred = globals()['rescaled_pred_' + '0']
+rep_history = globals()['history_' + '0']
 
-actual_change_data = test_stock['Close'][WINDOW_SIZE:]
+actual_change_data = test_stock[TARGET_DATA][WINDOW_SIZE:]
 actual_change_data = pd.Series(actual_change_data)
-actual_change_data = actual_change_data.diff()
-actual_change_data = actual_change_data.iloc[1:]  # 첫 번째 요소 제거
 
-actual_change_data_binary = actual_change_data.apply(lambda x: 1 if x >= 0 else 0)
+if TARGET_DATA != 'Signal':
+    actual_change_data = actual_change_data.diff()
+    actual_change_data = actual_change_data.iloc[1:]  # 첫 번째 요소 제거
+    actual_change_data_binary = actual_change_data.apply(lambda x: 1 if x >= 0 else 0)
+else:
+    actual_change_data_binary = actual_change_data
 
 for i in range(REP_SIZE):
-    globals()['rescaled_pred_binary_' + str(i)] = change_binary(globals()['rescaled_pred_' + str(i)])
+    globals()['rescaled_pred_binary_' + str(i)] = change_binary(globals()['rescaled_pred_' + str(i)], TARGET_DATA)
 
 pred_change_data_binary = globals()['rescaled_pred_binary_' + '0']
 # endregion
@@ -287,6 +328,33 @@ for i in range(REP_SIZE):
     res_df = res_df._append(res, ignore_index=True)
 
 res_df.to_excel(FILE_PATH, sheet_name='Data')
+# endregion
+
+# region 학습 그래프
+loss = rep_history.history['loss']
+accuracy = rep_history.history['accuracy']
+val_loss = rep_history.history['val_loss']
+val_accuracy = rep_history.history['val_accuracy']
+
+# 손실 그래프
+plt.figure(figsize=(12, 9))
+plt.plot(loss, label='train_loss')
+plt.plot(val_loss, label='val_loss')
+plt.title('train and val Loss')
+plt.xlabel('epoch')
+plt.ylabel('loss')
+plt.legend()
+plt.show()
+
+# 정확도 그래프
+plt.figure(figsize=(12, 9))
+plt.plot(accuracy, label='train_acc')
+plt.plot(val_accuracy, label='val_acc')
+plt.title('train and val Acc')
+plt.xlabel('epoch')
+plt.ylabel('accuracy')
+plt.legend()
+plt.show()
 # endregion
 
 # 마지막 예측값

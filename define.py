@@ -29,11 +29,14 @@ def windowed_dataset(series, window_size, batch_size, shuffle):
     return ds.batch(batch_size).prefetch(1)
 
 
-def change_binary(data):
-    pred_change_data = data.diff()
-    pred_change_data = pred_change_data.iloc[1:]
+def change_binary(data, target_data):
+    if target_data == 'Signal':
+        pred_change_data_binary = np.where(data >= 0.5, 1, 0)
+    else:
+        pred_change_data = data.diff()
+        pred_change_data = pred_change_data.iloc[1:]
 
-    pred_change_data_binary = np.where(pred_change_data > 0, 1, 0)
+        pred_change_data_binary = np.where(pred_change_data > 0, 1, 0)
 
     return pred_change_data_binary
 
@@ -131,6 +134,31 @@ def cal_days_change(data, day, data_type):
     return rtn
 
 
+def cal_rsi(df, rsi_period=14):
+    # 종가 변화량
+    df['Price_Change'] = df['Close'].diff()
+    # 양수 가격 변화와 음수 가격 변화 계산
+    df['Gain'] = df['Price_Change'].apply(lambda x: x if x > 0 else 0)
+    df['Loss'] = df['Price_Change'].apply(lambda x: abs(x) if x < 0 else 0)
+
+    # 초기값 설정
+    avg_gain = df['Gain'][:rsi_period].mean()
+    avg_loss = df['Loss'][:rsi_period].mean()
+
+    rsi_values = []
+    for i in range(rsi_period, len(df['Close'])):
+        au = ((rsi_period - 1) * avg_gain + df['Gain'].iloc[i]) / rsi_period
+        ad = ((rsi_period - 1) * avg_loss + df['Loss'].iloc[i]) / rsi_period
+
+        _rsi = au / (au + ad)
+        rsi_values.append(_rsi)
+
+    # RSI 열을 데이터프레임에 추가
+    df['RSI'] = [None] * rsi_period + rsi_values
+
+    return df
+
+
 def load_corp_data(stock_code, start_date, end_date, senti_file_path):
     # region 데이터 가져오기
     stock = fdr.DataReader(stock_code, start=start_date, end=end_date)
@@ -198,6 +226,11 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
     # region 입력 변수 데이터 생성
     # 변량 (입력변수 아님)
     stock['Diff'] = stock['Close'] - stock['Open']
+    # 방향
+    stock['Signal'] = stock['Diff'].apply(lambda x: 1 if x > 0 else 0)
+    # rsi
+    if rsi:
+        cal_rsi(stock, RSI_PERIOD)
     # 환율
     if ex_rate:
         stock['USD/KRW'] = usd_krw['Close']
@@ -259,10 +292,24 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
     return stock
 
 
+def find_cols_with_inf(df, scale_ft_cols):
+    inf_cols = []
+    for col_name in scale_ft_cols:
+        if df[col_name].isin([float('inf'), float('-inf')]).any():
+            inf_cols.append(col_name)
+    return inf_cols
+
+
 # endregion
 
 # region 입력변수 사용여부
-senti = True
+open_price = True
+high_price = True
+low_price = True
+volume = True
+
+rsi = False
+senti = False
 ex_rate = False
 bonds = False
 
@@ -295,7 +342,7 @@ rescale = True
 # 테스트 반복 횟수, epoch X
 REP_SIZE = 20
 
-TARGET_DATA = 'Close'
+TARGET_DATA = 'Signal'
 USE_CHANGE_DATA = False
 
 # 학습 횟수
@@ -306,6 +353,8 @@ LEARNING_RATE = 0.0002
 TEST_SIZE = 0.2
 WINDOW_SIZE = 20
 BATCH_SIZE = 32
+
+RSI_PERIOD = 14
 
 PATIENCE = 10
 
