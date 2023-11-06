@@ -31,20 +31,20 @@ start_time = time.time()
 # region 데이터 가져오기
 corp_list = []
 
-samsung = load_corp_data('005930', '2003-01-01', '2020-12-31', 'data/삼성전자_senti.csv')
-corp_list.append(samsung)
+#samsung = load_corp_data('005930', '2003-01-01', '2020-12-31', 'data/삼성전자_senti.csv')
+#corp_list.append(samsung)
 
-kakao = load_corp_data('005930', '2006-08-01', '2023-10-01', 'data/kakao_senti.csv')
-corp_list.append(kakao)
+#kakao = load_corp_data('005930', '2006-08-01', '2023-10-01', 'data/kakao_senti.csv')
+#corp_list.append(kakao)
 
-sk = load_corp_data('034730', '2014-02-01', '2023-10-01', 'data/sk_senti.csv')
-corp_list.append(sk)
+#sk = load_corp_data('034730', '2014-02-01', '2023-10-01', 'data/sk_senti.csv')
+#corp_list.append(sk)
 
 hyundai = load_corp_data('005380', '2016-01-01', '2018-02-08', 'data/현대_senti.csv')
-#corp_list.append(hyundai)
+corp_list.append(hyundai)
 
-cj = load_corp_data('001040', '2003-01-01', '2023-10-01', 'data/cj_senti.csv')
-corp_list.append(cj)
+#cj = load_corp_data('001040', '2003-01-01', '2023-10-01', 'data/cj_senti.csv')
+#corp_list.append(cj)
 
 #nongshim = load_corp_data('004370', '2003-01-01', '2023-10-01', 'data/농심_senti.csv')
 #corp_list.append(nongshim)
@@ -56,9 +56,9 @@ stock = pd.concat(corp_list, ignore_index=True)
 #ne = load_corp_data('053290','2021-08-01','2022-08-01','data/ne능률_senti.csv')
 
 samsung2 = load_corp_data('005930', '2022-09-01', '2023-06-01', 'data/삼성전자_senti.csv')
-corp_list.append(samsung2)
+#corp_list.append(samsung2)
 
-test_stock = hyundai
+test_stock = samsung2
 
 
 # 감성점수 없는 행 삭제
@@ -69,6 +69,21 @@ if(senti):
 # region 입력변수 리스트 추가
 scale_ft_cols = []
 # 기본 입력변수 리스트
+if pos_count:
+    scale_ft_cols.append('positive_count')
+if pos_score:
+    scale_ft_cols.append('positive_score')
+if neg_count:
+    scale_ft_cols.append('negative_count')
+if neg_score:
+    scale_ft_cols.append('negative_score')
+if total_count:
+    scale_ft_cols.append('total_count')
+if total_score:
+    scale_ft_cols.append('total_score')
+
+if nasdaq:
+    scale_ft_cols.append('NASDAQ')
 if open_price:
     scale_ft_cols.append('Open')
 if high_price:
@@ -196,7 +211,7 @@ for i in range(0, REP_SIZE):
             LSTM(16, activation='tanh'),
             Dropout(0.2),
             Dense(16, activation="relu"),
-            Dense(1),
+            Dense(1, activation="sigmoid"),
         ])
     else:
         globals()['test_' + str(i)] = Sequential([
@@ -208,8 +223,8 @@ for i in range(0, REP_SIZE):
         ])
     # 최적화 함수
     optimizer = Adam(LEARNING_RATE)
-    # 손실함수 = Sequence 학습에 비교적 좋은 퍼포먼스를 내는 Huber()를 사용합니다.
-    loss = Huber()
+    # 손실함수
+    loss = tf.keras.losses.BinaryCrossentropy()
 
     # 모델 컴파일
     if TARGET_DATA == 'Signal':
@@ -217,7 +232,7 @@ for i in range(0, REP_SIZE):
     else:
         globals()['test_' + str(i)].compile(loss=loss, optimizer=optimizer, metrics=['mse'])
 
-    # earlystopping은 patience동안 개선이 없다면 학습을 멈춥니다.
+    # earlystop
     if TARGET_DATA == 'Signal':
         globals()['e_stop_' + str(i)] = EarlyStopping(monitor='val_accuracy', patience=PATIENCE)
     else:
@@ -335,26 +350,26 @@ loss = rep_history.history['loss']
 accuracy = rep_history.history['accuracy']
 val_loss = rep_history.history['val_loss']
 val_accuracy = rep_history.history['val_accuracy']
+if DRAW_GRAPH:
+    # 손실 그래프
+    plt.figure(figsize=(12, 9))
+    plt.plot(loss, label='train_loss')
+    plt.plot(val_loss, label='val_loss')
+    plt.title('train and val Loss')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+    plt.legend()
+    plt.show()
 
-# 손실 그래프
-plt.figure(figsize=(12, 9))
-plt.plot(loss, label='train_loss')
-plt.plot(val_loss, label='val_loss')
-plt.title('train and val Loss')
-plt.xlabel('epoch')
-plt.ylabel('loss')
-plt.legend()
-plt.show()
-
-# 정확도 그래프
-plt.figure(figsize=(12, 9))
-plt.plot(accuracy, label='train_acc')
-plt.plot(val_accuracy, label='val_acc')
-plt.title('train and val Acc')
-plt.xlabel('epoch')
-plt.ylabel('accuracy')
-plt.legend()
-plt.show()
+    # 정확도 그래프
+    plt.figure(figsize=(12, 9))
+    plt.plot(accuracy, label='train_acc')
+    plt.plot(val_accuracy, label='val_acc')
+    plt.title('train and val Acc')
+    plt.xlabel('epoch')
+    plt.ylabel('accuracy')
+    plt.legend()
+    plt.show()
 # endregion
 
 # 마지막 예측값

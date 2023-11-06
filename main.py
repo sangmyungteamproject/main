@@ -29,23 +29,51 @@ from define import *
 start_time = time.time()
 
 # region 데이터 가져오기
-samsung = load_corp_data('005930','2003-01-01','2023-10-01','data/삼성전자_senti.csv')
+# samsung = load_corp_data('005930','2003-01-01','2023-10-01','data/삼성전자_senti.csv')
 # kakao = load_corp_data('005930','2003-01-01','2023-10-01','data/kakao_senti.csv')
 # sk = load_corp_data('034730', '2014-01-01', '2023-10-01', 'data/sk_senti.csv')
+hyundai = load_corp_data('005380', '2016-01-04', '2018-02-08', 'data/현대_senti_3.csv')
+#nongshim = load_corp_data('004370', '2022-11-11', '2023-10-05', 'data/농심_senti_3.csv')
 
 #stock = pd.concat([samsung, sk], ignore_index=True)
 #stock = stock.sort_values(by='Date')
 
-stock = samsung
-raise("아몰라")
+stock = hyundai
 # endregion
 
 # region 입력변수 리스트 추가
 # 기본 입력변수 리스트
 scale_ft_cols = ['Open', 'High', 'Low', 'Volume']
 # 감성점수
+# 기본 입력변수 리스트
+if pos_count:
+    scale_ft_cols.append('positive_count')
+if pos_score:
+    scale_ft_cols.append('positive_score')
+if neg_count:
+    scale_ft_cols.append('negative_count')
+if neg_score:
+    scale_ft_cols.append('negative_score')
+if total_count:
+    scale_ft_cols.append('total_count')
+if total_score:
+    scale_ft_cols.append('total_score')
+
+if nasdaq:
+    scale_ft_cols.append('NASDAQ')
+if open_price:
+    scale_ft_cols.append('Open')
+if high_price:
+    scale_ft_cols.append('High')
+if low_price:
+    scale_ft_cols.append('Low')
+if volume:
+    scale_ft_cols.append('Volume')
+# 감성점수
 if senti:
     scale_ft_cols.append('senti_val')
+if rsi:
+    scale_ft_cols.append('RSI')
 # 환율
 if ex_rate:
     scale_ft_cols.append('USD/KRW')
@@ -141,10 +169,8 @@ for i in range(0, REP_SIZE):
     globals()['test_' + str(i)] = Sequential([
         Conv1D(filters=32, kernel_size=5, padding="causal", activation="relu", input_shape=[WINDOW_SIZE, 1]),
         LSTM(16, activation='tanh'),
-        Dropout(0.2),
         Dense(16, activation="relu"),
-        Dropout(0.2),
-        Dense(1),
+        Dense(1, activation="sigmoid"),
     ])
 
     # 최적화 함수
@@ -201,15 +227,17 @@ else:
 
 rep_pred = globals()['rescaled_pred_' + '0']
 
-actual_change_data = stock['Close'][-idx_count + WINDOW_SIZE:]
+actual_change_data = stock[TARGET_DATA][-idx_count + WINDOW_SIZE:]
 actual_change_data = pd.Series(actual_change_data)
-actual_change_data = actual_change_data.diff()
-actual_change_data = actual_change_data.iloc[1:]  # 첫 번째 요소 제거
-
-actual_change_data_binary = actual_change_data.apply(lambda x: 1 if x >= 0 else 0)
+if TARGET_DATA != 'Signal':
+    actual_change_data = actual_change_data.diff()
+    actual_change_data = actual_change_data.iloc[1:]  # 첫 번째 요소 제거
+    actual_change_data_binary = actual_change_data.apply(lambda x: 1 if x >= 0 else 0)
+else:
+    actual_change_data_binary = actual_change_data
 
 for i in range(REP_SIZE):
-    globals()['rescaled_pred_binary_' + str(i)] = change_binary(globals()['rescaled_pred_' + str(i)])
+    globals()['rescaled_pred_binary_' + str(i)] = change_binary(globals()['rescaled_pred_' + str(i)], TARGET_DATA)
 
 pred_change_data_binary = globals()['rescaled_pred_binary_' + '0']
 # endregion

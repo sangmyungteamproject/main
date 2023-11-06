@@ -162,62 +162,130 @@ def cal_rsi(df, rsi_period=14):
 def load_corp_data(stock_code, start_date, end_date, senti_file_path):
     # region 데이터 가져오기
     stock = fdr.DataReader(stock_code, start=start_date, end=end_date)
+    stock['Year'] = stock.index.year
+    stock['Month'] = stock.index.month
+    stock['Day'] = stock.index.day
+
     # 환율
     usd_krw = fdr.DataReader('USD/KRW', start=start_date, end=end_date)
     jpy_krw = fdr.DataReader('JPY/KRW', start=start_date, end=end_date)
     # 미 국채 금리 10년
     dgs = fdr.DataReader('FRED:DGS10', start=start_date, end=end_date)
-
-    stock['Year'] = stock.index.year
-    stock['Month'] = stock.index.month
-    stock['Day'] = stock.index.day
-
-    # 감성점수 데이터 불러오기
-    senti_df = pd.read_csv(senti_file_path, header=None, index_col=None)
-    header = ['date', 'senti_val']
-    senti_df.columns = header
-
-    # 중복된 날짜 병합 후 정렬
-    senti_df = senti_df.groupby('date').mean().reset_index()
-    senti_df = senti_df.sort_values(by='date')
-
-    # 'date' 열을 datetime 형식으로 변환
-    senti_df['datetime'] = pd.to_datetime(senti_df['date'])
-
-    # 'datetime' 열에서 금, 토, 일에 해당하는 행만 선택
-    weekend_data = senti_df[senti_df['datetime'].dt.dayofweek.isin([4, 5, 6])]
-    # 'datetime' 열에서 각 주말 날짜의 금요일 날짜만 추출
-    friday_dates = weekend_data['datetime'] - pd.to_timedelta((weekend_data['datetime'].dt.dayofweek - 4) % 7, unit='d')
-    # 추출한 금요일 날짜를 기준으로 그룹화하고 평균 계산
-    result = weekend_data.groupby(friday_dates)['senti_val'].mean().reset_index()
-    # 'datetime' 열에서 토요일(요일 코드 5)과 일요일(요일 코드 6)에 해당하는 행을 삭제
-    senti_df = senti_df[~senti_df['datetime'].dt.dayofweek.isin([5, 6])]
-    # 'senti_df' 데이터프레임의 'datetime' 값이 'result' 데이터프레임의 'datetime' 값과 일치하는 행 선택
-    merge_condition = senti_df['datetime'].isin(result['datetime'])
-    # 'senti_df'에서 선택한 행의 'senti_val' 열 값을 'result' 데이터프레임의 'senti_val' 열 값으로 대체
-    senti_df.loc[merge_condition, 'senti_val'] = result.loc[
-        result['datetime'].isin(senti_df['datetime']), 'senti_val'].values
-    # 'result' 데이터프레임의 'datetime' 열에만 있는 데이터를 'senti_df'에 추가
-    result_only_rows = result[~result['datetime'].isin(senti_df['datetime'])]
-    senti_df = pd.concat([senti_df, result_only_rows], ignore_index=True)
-
-    # 'date' 열이 NaN인 행 선택
-    nan_date_condition = senti_df['date'].isna()
-    # 'date' 열이 NaN인 행의 'datetime' 값을 '%Y-%m-%d' 형식으로 변경
-    senti_df.loc[nan_date_condition, 'date'] = senti_df.loc[nan_date_condition, 'datetime'].dt.strftime('%Y-%m-%d')
-    # 'date' 열의 데이터 타입을 'object'로 변경
-    senti_df['date'] = senti_df['date'].astype('object')
-
-    senti_df = senti_df.sort_values(by='date')
-    senti_df.reset_index(drop=True, inplace=True)
-    stock['date'] = stock.index
-    stock.reset_index(drop=False, inplace=True)
-    stock['date'] = stock['date'].apply(lambda x: x.strftime("%Y-%m-%d"))
+    # 나스닥
+    nasdaq_data = fdr.DataReader('^IXIC', start=start_date, end=end_date)
+    # 감성점수
     if senti:
+        # 감성점수 데이터 불러오기
+        senti_df = pd.read_csv(senti_file_path, header=None, index_col=None)
+        header = ['date', 'senti_val']
+        senti_df.columns = header
+
+        # 중복된 날짜 병합 후 정렬
+        senti_df = senti_df.groupby('date').mean().reset_index()
+        senti_df = senti_df.sort_values(by='date')
+
+        # 'date' 열을 datetime 형식으로 변환
+        senti_df['datetime'] = pd.to_datetime(senti_df['date'])
+
+        # 'datetime' 열에서 금, 토, 일에 해당하는 행만 선택
+        weekend_data = senti_df[senti_df['datetime'].dt.dayofweek.isin([4, 5, 6])]
+        # 'datetime' 열에서 각 주말 날짜의 금요일 날짜만 추출
+        friday_dates = weekend_data['datetime'] - pd.to_timedelta((weekend_data['datetime'].dt.dayofweek - 4) % 7, unit='d')
+        # 추출한 금요일 날짜를 기준으로 그룹화하고 평균 계산
+        result = weekend_data.groupby(friday_dates)['senti_val'].mean().reset_index()
+        # 'datetime' 열에서 토요일(요일 코드 5)과 일요일(요일 코드 6)에 해당하는 행을 삭제
+        senti_df = senti_df[~senti_df['datetime'].dt.dayofweek.isin([5, 6])]
+        # 'senti_df' 데이터프레임의 'datetime' 값이 'result' 데이터프레임의 'datetime' 값과 일치하는 행 선택
+        merge_condition = senti_df['datetime'].isin(result['datetime'])
+        # 'senti_df'에서 선택한 행의 'senti_val' 열 값을 'result' 데이터프레임의 'senti_val' 열 값으로 대체
+        senti_df.loc[merge_condition, 'senti_val'] = result.loc[
+            result['datetime'].isin(senti_df['datetime']), 'senti_val'].values
+        # 'result' 데이터프레임의 'datetime' 열에만 있는 데이터를 'senti_df'에 추가
+        result_only_rows = result[~result['datetime'].isin(senti_df['datetime'])]
+        senti_df = pd.concat([senti_df, result_only_rows], ignore_index=True)
+
+        # 'date' 열이 NaN인 행 선택
+        nan_date_condition = senti_df['date'].isna()
+        # 'date' 열이 NaN인 행의 'datetime' 값을 '%Y-%m-%d' 형식으로 변경
+        senti_df.loc[nan_date_condition, 'date'] = senti_df.loc[nan_date_condition, 'datetime'].dt.strftime('%Y-%m-%d')
+        # 'date' 열의 데이터 타입을 'object'로 변경
+        senti_df['date'] = senti_df['date'].astype('object')
+
+        senti_df = senti_df.sort_values(by='date')
+        senti_df.reset_index(drop=True, inplace=True)
+        stock['date'] = stock.index
+        stock.reset_index(drop=False, inplace=True)
+        stock['date'] = stock['date'].apply(lambda x: x.strftime("%Y-%m-%d"))
         # 주가 정보 데이터 프레임에 감성점수 데이터를 날짜 열을 기준으로 병합
         stock = pd.merge(stock, senti_df, on='date', how='left')
         # 감성 점수 없는 날 데이터 보간
         stock['senti_val'] = stock['senti_val'].interpolate(method='linear')
+    if tmp_senti_bool:
+        tmp_senti_df = pd.read_csv(senti_file_path, header=0, index_col=None)
+        # 중복된 날짜 병합 후 정렬
+        tmp_senti_df = tmp_senti_df.groupby('date').mean().reset_index()
+        tmp_senti_df = tmp_senti_df.sort_values(by='date')
+        # 'date' 열을 datetime 형식으로 변환
+        tmp_senti_df['datetime'] = pd.to_datetime(tmp_senti_df['date'])
+        # 'datetime' 열에서 금, 토, 일에 해당하는 행만 선택
+        tmp_weekend_data = tmp_senti_df[tmp_senti_df['datetime'].dt.dayofweek.isin([4, 5, 6])]
+        # 'datetime' 열에서 각 주말 날짜의 금요일 날짜만 추출
+        tmp_friday_dates = tmp_weekend_data['datetime'] - pd.to_timedelta((tmp_weekend_data['datetime'].dt.dayofweek - 4) % 7, unit='d')
+        # 추출한 금요일 날짜를 기준으로 그룹화하고 평균 계산
+        avg_p_c = tmp_weekend_data.groupby(tmp_friday_dates)['positive_count'].mean().reset_index()
+        avg_p_s = tmp_weekend_data.groupby(tmp_friday_dates)['positive_score'].mean().reset_index()
+        avg_n_c = tmp_weekend_data.groupby(tmp_friday_dates)['negative_count'].mean().reset_index()
+        avg_n_s = tmp_weekend_data.groupby(tmp_friday_dates)['negative_score'].mean().reset_index()
+        avg_t_c = tmp_weekend_data.groupby(tmp_friday_dates)['total_count'].mean().reset_index()
+        avg_t_s = tmp_weekend_data.groupby(tmp_friday_dates)['total_score'].mean().reset_index()
+
+        # 'datetime' 열에서 토요일(요일 코드 5)과 일요일(요일 코드 6)에 해당하는 행을 삭제
+        tmp_senti_df = tmp_senti_df[~tmp_senti_df['datetime'].dt.dayofweek.isin([5, 6])]
+
+        # 'senti_df' 데이터프레임의 'datetime' 값이 'result' 데이터프레임의 'datetime' 값과 일치하는 행 선택
+        tmp_merge_condition = tmp_senti_df['datetime'].isin(avg_t_s['datetime'])
+        # 'senti_df'에서 선택한 행의 'senti_val' 열 값을 'result' 데이터프레임의 'senti_val' 열 값으로 대체
+        tmp_senti_df.loc[tmp_merge_condition, 'positive_count'] = \
+            avg_p_c.loc[avg_p_c['datetime'].isin(avg_p_c['datetime']), 'positive_count'].values
+        tmp_senti_df.loc[tmp_merge_condition, 'positive_score'] = \
+            avg_p_s.loc[avg_p_s['datetime'].isin(avg_p_s['datetime']), 'positive_score'].values
+        tmp_senti_df.loc[tmp_merge_condition, 'negative_count'] = \
+            avg_n_c.loc[avg_n_c['datetime'].isin(avg_n_c['datetime']), 'negative_count'].values
+        tmp_senti_df.loc[tmp_merge_condition, 'negative_score'] = \
+            avg_n_s.loc[avg_n_s['datetime'].isin(avg_n_s['datetime']), 'negative_score'].values
+        tmp_senti_df.loc[tmp_merge_condition, 'total_count'] = \
+            avg_t_c.loc[avg_t_c['datetime'].isin(avg_t_c['datetime']), 'total_count'].values
+        tmp_senti_df.loc[tmp_merge_condition, 'total_score'] = \
+            avg_t_s.loc[avg_t_s['datetime'].isin(avg_t_s['datetime']), 'total_score'].values
+        # 'result' 데이터프레임의 'datetime' 열에만 있는 데이터를 'senti_df'에 추가
+        avg_only_row_p_c = avg_p_c[~avg_p_c['datetime'].isin(tmp_senti_df['datetime'])]
+        avg_only_row_p_s = avg_p_s[~avg_p_s['datetime'].isin(tmp_senti_df['datetime'])]
+        avg_only_row_n_c = avg_n_c[~avg_n_c['datetime'].isin(tmp_senti_df['datetime'])]
+        avg_only_row_n_s = avg_n_s[~avg_n_s['datetime'].isin(tmp_senti_df['datetime'])]
+        avg_only_row_t_c = avg_t_c[~avg_t_c['datetime'].isin(tmp_senti_df['datetime'])]
+        avg_only_row_t_s = avg_t_s[~avg_t_s['datetime'].isin(tmp_senti_df['datetime'])]
+        tmp_senti_df = pd.concat([tmp_senti_df, avg_only_row_p_c], ignore_index=True)
+        tmp_senti_df = pd.concat([tmp_senti_df, avg_only_row_p_s], ignore_index=True)
+        tmp_senti_df = pd.concat([tmp_senti_df, avg_only_row_n_c], ignore_index=True)
+        tmp_senti_df = pd.concat([tmp_senti_df, avg_only_row_n_s], ignore_index=True)
+        tmp_senti_df = pd.concat([tmp_senti_df, avg_only_row_t_c], ignore_index=True)
+        tmp_senti_df = pd.concat([tmp_senti_df, avg_only_row_t_s], ignore_index=True)
+
+        # 'date' 열이 NaN인 행 선택
+        nan_date_condition = tmp_senti_df['date'].isna()
+        # 'date' 열이 NaN인 행의 'datetime' 값을 '%Y-%m-%d' 형식으로 변경
+        tmp_senti_df.loc[nan_date_condition, 'date'] = tmp_senti_df.loc[nan_date_condition, 'datetime'].dt.strftime('%Y-%m-%d')
+        # 'date' 열의 데이터 타입을 'object'로 변경
+        tmp_senti_df['date'] = tmp_senti_df['date'].astype('object')
+
+        tmp_senti_df = tmp_senti_df.sort_values(by='date')
+        tmp_senti_df.reset_index(drop=True, inplace=True)
+        stock['date'] = stock.index
+        stock.reset_index(drop=False, inplace=True)
+        stock['date'] = stock['date'].apply(lambda x: x.strftime("%Y-%m-%d"))
+        # 주가 정보 데이터 프레임에 감성점수 데이터를 날짜 열을 기준으로 병합
+        stock = pd.merge(stock, tmp_senti_df, on='date', how='right')
+        stock = stock.dropna()
 
     # 결측값 제거
     stock = stock[stock['Open'] != 0]
@@ -228,6 +296,9 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
     stock['Diff'] = stock['Close'] - stock['Open']
     # 방향
     stock['Signal'] = stock['Diff'].apply(lambda x: 1 if x > 0 else 0)
+    # nasdaq
+    if nasdaq:
+        stock['NASDAQ'] = nasdaq_data['Close']
     # rsi
     if rsi:
         cal_rsi(stock, RSI_PERIOD)
@@ -288,7 +359,6 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
     # 앞부분 데이터 삭제 (20일 이평 기준)
     stock = stock.iloc[20:]
     # endregion
-
     return stock
 
 
@@ -303,6 +373,8 @@ def find_cols_with_inf(df, scale_ft_cols):
 # endregion
 
 # region 입력변수 사용여부
+nasdaq = False
+
 open_price = True
 high_price = True
 low_price = True
@@ -325,7 +397,6 @@ ma20 = False
 # ma20 필수
 ma_20_1 = False
 ma_20_2 = False
-
 cummax = False
 uptail = False
 
@@ -336,6 +407,18 @@ three_vol_change = False
 vol_ma10 = False
 pos_vol10ma = False
 # endregion
+
+# region tmp
+pos_count = True
+pos_score = pos_count
+neg_count = pos_count
+neg_score = pos_count
+total_count = True
+total_score = total_count
+
+tmp_senti_bool = pos_count or pos_count or neg_count or neg_score or total_count or total_score
+# endregion
+
 
 # 리스케일링 여부
 rescale = True
@@ -348,15 +431,17 @@ USE_CHANGE_DATA = False
 # 학습 횟수
 EPOCH = 200
 # 옵티마이저 학습률
-LEARNING_RATE = 0.0002
+LEARNING_RATE = 0.0005
 # 테스트 데이터 비율
 TEST_SIZE = 0.2
-WINDOW_SIZE = 20
+WINDOW_SIZE = 5
 BATCH_SIZE = 32
 
 RSI_PERIOD = 14
 
 PATIENCE = 10
+
+DRAW_GRAPH = False
 
 FILE_PATH = 'C:/Users/kim/Desktop/res_df.xlsx'
 TARGET_SHEET = 'Data'
