@@ -6,8 +6,18 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_square
 from sklearn.metrics import classification_report, confusion_matrix, precision_score, recall_score, f1_score, \
     accuracy_score
 from statsmodels.tsa.stattools import adfuller
+from datetime import timedelta
 
 import FinanceDataReader as fdr
+
+
+def make_dataset(ft, tg, window_size=20):
+    ft_list = []
+    tg_list = []
+    for i in range(len(ft) - window_size):
+        ft_list.append(np.array(ft.iloc[i:i + window_size]))
+        tg_list.append(np.array(tg.iloc[i + window_size]))
+    return np.array(ft_list), np.array(tg_list)
 
 
 # region 함수
@@ -31,7 +41,7 @@ def windowed_dataset(series, window_size, batch_size, shuffle):
 
 def change_binary(data, target_data):
     if target_data == 'Signal':
-        pred_change_data_binary = np.where(data >= 0.5, 1, 0)
+        pred_change_data_binary = np.where(data > 0.5, 1, 0)
     else:
         pred_change_data = data.diff()
         pred_change_data = pred_change_data.iloc[1:]
@@ -46,54 +56,36 @@ def confirm_result(actual, pred, actual_bin, pred_bin, use_change_data):
     mae = mean_absolute_error(actual, pred)
     rmse = np.sqrt(mean_squared_error(actual, pred))
     r2 = r2_score(actual, pred)
-    if not use_change_data:
+    if not use_change_data and TARGET_DATA != 'Signal':
         rmsle = np.sqrt(mean_squared_log_error(actual, pred))
         msle = mean_squared_log_error(actual, pred)
 
     # 정확도 계산
     accuracy = accuracy_score(actual_bin, pred_bin)
     # 정밀도 계산
-    precision = precision_score(actual_bin, pred_bin)
+    # precision = precision_score(actual_bin, pred_bin)
     # 재현율 계산
-    recall = recall_score(actual_bin, pred_bin)
+    # recall = recall_score(actual_bin, pred_bin)
     # F1 스코어 계산
     f1 = f1_score(actual_bin, pred_bin)
 
     pd.options.display.float_format = '{:.5f}'.format
 
-    if not use_change_data:
+    if not use_change_data and TARGET_DATA != 'Signal':
         table = \
             {
                 "MAE": [mae], "RMSE": [rmse], "RMSLE": [rmsle], "R2": [r2],
-                "ACCURACY": [accuracy], "PRECISION": [precision], "RECALL": [recall],
-                "F1_SCORE": [f1]
+                "ACCURACY": [accuracy], "F1_SCORE": [f1]
             }
         res = pd.DataFrame(table)
     else:
         table = \
             {
-                "MAE": [mae], "RMSE": [rmse], "RMSLE": ['0'], "R2": [r2],
-                "ACCURACY": [accuracy], "PRECISION": [precision], "RECALL": [recall],
-                "F1_SCORE": [f1]
+                "ACCURACY": [accuracy], "F1_SCORE": [f1]
             }
         res = pd.DataFrame(table)
 
     return res
-
-
-def perform_dickey_fuller_test(data):
-    # Dickey-Fuller 검정 수행
-    result = adfuller(data)
-
-    # 결과 출력
-    print("Dickey-Fuller Test 결과:")
-    print("검정 통계량 (Test Statistic):", result[0])
-    print("p-value:", result[1])
-    print("사용된 시차 (Lags Used):", result[2])
-    print("사용된 관측값 수 (Number of Observations Used):", result[3])
-    print("임계값 (Critical Values):")
-    for key, value in result[4].items():
-        print(f"\t{key}: {value}")
 
 
 def positive_negative(x):
@@ -159,13 +151,17 @@ def cal_rsi(df, rsi_period=14):
     return df
 
 
+def convert_col_int(df, col):
+    df[col] = df[col].astype(int)
+    return df
+
+
 def load_corp_data(stock_code, start_date, end_date, senti_file_path):
     # region 데이터 가져오기
     stock = fdr.DataReader(stock_code, start=start_date, end=end_date)
     stock['Year'] = stock.index.year
     stock['Month'] = stock.index.month
     stock['Day'] = stock.index.day
-
     # 환율
     usd_krw = fdr.DataReader('USD/KRW', start=start_date, end=end_date)
     jpy_krw = fdr.DataReader('JPY/KRW', start=start_date, end=end_date)
@@ -190,7 +186,8 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
         # 'datetime' 열에서 금, 토, 일에 해당하는 행만 선택
         weekend_data = senti_df[senti_df['datetime'].dt.dayofweek.isin([4, 5, 6])]
         # 'datetime' 열에서 각 주말 날짜의 금요일 날짜만 추출
-        friday_dates = weekend_data['datetime'] - pd.to_timedelta((weekend_data['datetime'].dt.dayofweek - 4) % 7, unit='d')
+        friday_dates = weekend_data['datetime'] - pd.to_timedelta((weekend_data['datetime'].dt.dayofweek - 4) % 7,
+                                                                  unit='d')
         # 추출한 금요일 날짜를 기준으로 그룹화하고 평균 계산
         result = weekend_data.groupby(friday_dates)['senti_val'].mean().reset_index()
         # 'datetime' 열에서 토요일(요일 코드 5)과 일요일(요일 코드 6)에 해당하는 행을 삭제
@@ -220,7 +217,7 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
         stock = pd.merge(stock, senti_df, on='date', how='left')
         # 감성 점수 없는 날 데이터 보간
         stock['senti_val'] = stock['senti_val'].interpolate(method='linear')
-    if tmp_senti_bool:
+    if 1:
         tmp_senti_df = pd.read_csv(senti_file_path, header=0, index_col=None)
         # 중복된 날짜 병합 후 정렬
         tmp_senti_df = tmp_senti_df.groupby('date').mean().reset_index()
@@ -230,7 +227,8 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
         # 'datetime' 열에서 금, 토, 일에 해당하는 행만 선택
         tmp_weekend_data = tmp_senti_df[tmp_senti_df['datetime'].dt.dayofweek.isin([4, 5, 6])]
         # 'datetime' 열에서 각 주말 날짜의 금요일 날짜만 추출
-        tmp_friday_dates = tmp_weekend_data['datetime'] - pd.to_timedelta((tmp_weekend_data['datetime'].dt.dayofweek - 4) % 7, unit='d')
+        tmp_friday_dates = tmp_weekend_data['datetime'] - pd.to_timedelta(
+            (tmp_weekend_data['datetime'].dt.dayofweek - 4) % 7, unit='d')
         # 추출한 금요일 날짜를 기준으로 그룹화하고 평균 계산
         avg_p_c = tmp_weekend_data.groupby(tmp_friday_dates)['positive_count'].mean().reset_index()
         avg_p_s = tmp_weekend_data.groupby(tmp_friday_dates)['positive_score'].mean().reset_index()
@@ -274,7 +272,8 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
         # 'date' 열이 NaN인 행 선택
         nan_date_condition = tmp_senti_df['date'].isna()
         # 'date' 열이 NaN인 행의 'datetime' 값을 '%Y-%m-%d' 형식으로 변경
-        tmp_senti_df.loc[nan_date_condition, 'date'] = tmp_senti_df.loc[nan_date_condition, 'datetime'].dt.strftime('%Y-%m-%d')
+        tmp_senti_df.loc[nan_date_condition, 'date'] = tmp_senti_df.loc[nan_date_condition, 'datetime'].dt.strftime(
+            '%Y-%m-%d')
         # 'date' 열의 데이터 타입을 'object'로 변경
         tmp_senti_df['date'] = tmp_senti_df['date'].astype('object')
 
@@ -291,24 +290,35 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
     stock = stock[stock['Open'] != 0]
     # endregion
 
+    stock['total_score'] = ((stock['positive_count'] * stock['positive_score']) + (
+            stock['negative_count'] * stock['negative_score'])) / stock['total_count']
+
     # region 입력 변수 데이터 생성
     # 변량 (입력변수 아님)
     stock['Diff'] = stock['Close'] - stock['Open']
     # 방향
-    stock['Signal'] = stock['Diff'].apply(lambda x: 1 if x > 0 else 0)
+    stock['Signal'] = (stock['Close'] > stock['Close'].shift(1)).astype(int)
+    stock['Signal'] = stock['Signal'].fillna(0).astype(int)
+    # stock['Signal'] = (stock['Change'] >= 0.01).astype(int)
+    # stock['Signal'] = stock['Signal'].fillna(0).astype(int)
+
     # nasdaq
     if nasdaq:
-        stock['NASDAQ'] = nasdaq_data['Close']
+        tmp_nasdaq = pd.merge(stock, nasdaq_data[['Close']], left_on='Date', right_index=True, how='left')
+        stock['NASDAQ'] = tmp_nasdaq['Close_y']
     # rsi
     if rsi:
         cal_rsi(stock, RSI_PERIOD)
     # 환율
     if ex_rate:
-        stock['USD/KRW'] = usd_krw['Close']
-        stock['JPY/KRW'] = jpy_krw['Close']
+        usd = pd.merge(stock, usd_krw[['Close']], left_on='Date', right_index=True, how='left')
+        stock['USD/KRW'] = usd['Close_y']
+        jpy = pd.merge(stock, jpy_krw[['Close']], left_on='Date', right_index=True, how='left')
+        stock['JPY/KRW'] = jpy['Close_y']
     # 미 국채 10년
     if bonds:
-        stock['DGS10'] = dgs
+        _dgs = pd.merge(stock, dgs, left_on='Date', right_index=True, how='left')
+        stock['DGS10'] = _dgs['DGS10']
     # 봉 색깔
     if color:
         stock['Color'] = stock['Diff'].apply(positive_negative)
@@ -325,6 +335,7 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
     if trend:
         stock['Trend'] = stock['Color'].shift(4) + stock['Color'].shift(3) \
                          + stock['Color'].shift(2) + stock['Color'].shift(1) + stock['Color']
+
     # 20일 이동평균
     if ma20:
         stock['MA_20'] = cal_ma(stock, 'Close', 20)
@@ -357,8 +368,12 @@ def load_corp_data(stock_code, start_date, end_date, senti_file_path):
         stock['Pos_Vol10MA'] = stock['Volume'] / stock['Volume_MA10']
 
     # 앞부분 데이터 삭제 (20일 이평 기준)
-    stock = stock.iloc[20:]
+    if (ma20 or five_days_change or four_days_change or vol_ma10 or pos_vol10ma):
+        stock = stock.iloc[20:]
     # endregion
+
+    # 결측치 제거
+    stock = stock.dropna()
     return stock
 
 
@@ -370,17 +385,43 @@ def find_cols_with_inf(df, scale_ft_cols):
     return inf_cols
 
 
+def demo_trade(stock, signal_data, init_cap):
+    capital = init_cap
+    shares_held = 0
+
+    for index, price, signal in zip(signal_data.index, stock['Close'], signal_data.iloc[:, 0]):
+        # 매수/매도 기준 가격 : 예측 일 기준 어제 종가
+        price_index = stock.index.get_loc(index) - 1
+        price = stock['Close'].iloc[price_index]
+        if signal == 1:
+            # 상승 예측 시 매수
+            shares_bought = capital // price
+            shares_held += shares_bought
+            capital -= shares_bought * price
+        elif signal == 0:
+            # 하락 예측 시 매도
+            capital += shares_held * price
+            shares_held = 0
+
+    # 최종 결과 출력
+    final_value = capital + shares_held * stock['Open'].iloc[-1]
+    print(f"초기 자금: {init_cap}원, 매매 결과: {final_value}원")
+
+    return final_value
+
+
 # endregion
 
 # region 입력변수 사용여부
-nasdaq = False
+nasdaq = True
 
 open_price = True
 high_price = True
 low_price = True
 volume = True
+close = False
 
-rsi = False
+rsi = True
 senti = False
 ex_rate = False
 bonds = False
@@ -414,14 +455,14 @@ pos_score = pos_count
 neg_count = pos_count
 neg_score = pos_count
 total_count = True
-total_score = total_count
+total_score = True
 
 tmp_senti_bool = pos_count or pos_count or neg_count or neg_score or total_count or total_score
 # endregion
 
 
 # 리스케일링 여부
-rescale = True
+rescale = False
 # 테스트 반복 횟수, epoch X
 REP_SIZE = 20
 
@@ -429,19 +470,20 @@ TARGET_DATA = 'Signal'
 USE_CHANGE_DATA = False
 
 # 학습 횟수
-EPOCH = 200
+EPOCH = 100
+
 # 옵티마이저 학습률
 LEARNING_RATE = 0.0005
 # 테스트 데이터 비율
-TEST_SIZE = 0.2
-WINDOW_SIZE = 5
+TEST_SIZE = 0.15
+WINDOW_SIZE = 20
 BATCH_SIZE = 32
 
 RSI_PERIOD = 14
 
 PATIENCE = 10
 
-DRAW_GRAPH = False
+DRAW_GRAPH = True
 
 FILE_PATH = 'C:/Users/kim/Desktop/res_df.xlsx'
 TARGET_SHEET = 'Data'
